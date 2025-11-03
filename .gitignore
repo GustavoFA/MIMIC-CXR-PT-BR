@@ -1,0 +1,11 @@
+# ignore everything
+*
+
+!*/
+!.gitignore
+!README.md
+!LICENSE
+
+# Allow:
+!*.py
+!*.ipynb
