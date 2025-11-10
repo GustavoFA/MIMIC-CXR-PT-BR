@@ -1,11 +1,13 @@
 import os
 import json
+import random
 import pandas as pd
+from PIL import Image
 
 def split_mimic_files(files_dir:str, 
              json_path:str=None, 
-             n_train:int=1000, 
-             n_val:int=500, 
+             n_train:int=100000, 
+             n_val:int=50000, 
              n_test:int=7 # few data
              ) -> dict:
     '''
@@ -64,6 +66,7 @@ def split_mimic_files(files_dir:str,
         df_split = pd.read_csv(os.path.join(files_dir, 'mimic-cxr-2.0.0-split.csv'))
         df_chexpert = pd.read_csv(os.path.join(files_dir, 'mimic-cxr-2.0.0-chexpert.csv'))
         df_negbio = pd.read_csv(os.path.join(files_dir, 'mimic-cxr-2.0.0-negbio.csv'))  
+        df_mimic_set_label = pd.read_csv(os.path.join(files_dir, 'mimic-cxr-2.1.0-test-set-labeled.csv'))
     # files folder name
     dir_files = r'files'
     # split limit
@@ -132,6 +135,7 @@ def split_mimic_files(files_dir:str,
         "Support Devices"
     ]
 
+
     # Read cheXpert
     for _, row in df_chexpert.iterrows():
         sub_id = f"p{str(int(row['subject_id']))}"
@@ -168,11 +172,108 @@ def split_mimic_files(files_dir:str,
     
     return files_dict
 
+def balanced_data(files_dir:str,
+                  split_mimic_file:str,
+                  n_train:int=100,
+                  n_val:int=50,
+                  img_res:int=448,
+                  filter_text:bool=True
+                  ) -> str:
+    '''
+        Criar um diretório as separações para treino e validação.
+        Para cada estudo deve ter apenas um label (o primeiro), baseado no CheXpert
+        As imagens devem ser nomeadas com um número igual ao do texto.
+        Para os textos temos que obter apenas a parte depois de findings
+    '''
+
+    # carregar o json
+    with open(split_mimic_file, 'r') as f:
+        mimic_split = json.load(f)
+
+    output_dir = os.path.join(os.path.dirname(files_dir), 'mimic_balanced')
+    os.makedirs(output_dir, exist_ok=True)
+
+    for split_name, split_data in mimic_split.items():
+        if split_name == 'test':
+            continue
+    
+        n_samples = n_train if split_name == 'train' else n_val
+
+        split_dir = os.path.join(output_dir, split_name)
+        img_dir = os.path.join(split_dir, "images")
+        txt_dir = os.path.join(split_dir, "texts")
+
+        os.makedirs(img_dir, exist_ok=True)
+        os.makedirs(txt_dir, exist_ok=True)
+        
+        # Coleta dos dados
+        studies = []
+        for patient_id, studies_dict in split_data.items():
+            for study_id, info in studies_dict.items():
+                chex_label = info.get("chexpert", ["Unknown"])[0]
+                text_path = info.get("study")
+                img_paths = info.get("images", [])
+                studies.append({
+                    "text": text_path,
+                    "images": img_paths,
+                    "label": chex_label
+                })
+        
+        # embaralhar e cortar
+        random.shuffle(studies)
+        studies = studies[:n_samples]
+
+        # processar
+        for idx, study in enumerate(studies, start=1):
+            text_file = study["text"]
+            label = study["label"]
+            img_files = study["images"]
+
+            # carregar e filtrar texto
+            try:
+                with open(text_file, "r", encoding="utf-8", errors="ignore") as tf:
+                    text_content = tf.read()
+            except Exception as e:
+                print(f"[WARN] Falha ao ler {text_file}: {e}")
+                continue
+
+            if filter_text:
+                parts = text_content.lower().split("findings")
+                text_content = parts[-1].strip() if len(parts) > 1 else text_content.strip()
+
+            # salvar texto
+            txt_out = os.path.join(txt_dir, f"{idx:05d}.txt")
+            with open(txt_out, "w", encoding="utf-8") as out:
+                out.write(f"{label}\n{text_content}")
+
+            # salvar uma imagem (a primeira)
+            if not img_files:
+                continue
+            img_in = img_files[0]
+            img_out = os.path.join(img_dir, f"{idx:05d}.jpg")
+
+            try:
+                img = Image.open(img_in).convert("RGB")
+                img = img.resize((img_res, img_res))
+                img.save(img_out)
+            except Exception as e:
+                print(f"[WARN] Falha ao processar imagem {img_in}: {e}")
+
+    return f'PROCESSO CONCLUÍDO COM SUCESSO.\nDiretório criado em: {output_dir}'
+
 if __name__ == '__main__':
 
-    # building the mini-mimic-dataset
-    split_mimic_files(
-        r'C:\IA368\small_mimic_cxr\mimic_small',
-        r'C:\IA368'
-        )
+    # # building the mini-mimic-dataset
+    # split_mimic_files(
+    #     r'C:\IA368\small_mimic_cxr\mimic_small',
+    #     r'C:\IA368'
+    #     )
+    
+    balanced_data(
+        r'C:\IA368\small_mimic_cxr\mimic_small\files',
+        r'C:\IA368\MIMIC_SPLIT.json',
+        10,
+        5,
+        224
+    )
 
