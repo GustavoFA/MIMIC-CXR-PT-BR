@@ -3,6 +3,7 @@ import json
 import random
 import pandas as pd
 from PIL import Image
+from collections import Counter
 
 def split_mimic_files(files_dir:str, 
              json_path:str=None, 
@@ -174,10 +175,11 @@ def split_mimic_files(files_dir:str,
 
 def balanced_data(files_dir:str,
                   split_mimic_file:str,
-                  n_train:int=100,
-                  n_val:int=50,
+                  n_train:int=10,
+                  n_val:int=5,
                   img_res:int=448,
-                  filter_text:bool=True
+                  filter_text:bool=True,
+                  final_file_name:str='MIMIC_BALANCED'
                   ) -> str:
     '''
         Criar um diretório as separações para treino e validação.
@@ -190,7 +192,7 @@ def balanced_data(files_dir:str,
     with open(split_mimic_file, 'r') as f:
         mimic_split = json.load(f)
     # Caminho de saída
-    output_dir = os.path.join(os.path.dirname(files_dir), 'mimic_balanced')
+    output_dir = os.path.join(os.path.dirname(split_mimic_file), final_file_name)
     os.makedirs(output_dir, exist_ok=True)
     # Percorrer cada split (treino e validação)
     for split_name, split_data in mimic_split.items():
@@ -211,64 +213,112 @@ def balanced_data(files_dir:str,
         # Coleta dos dados baseado nos labels do CheXpert 
         # IMPORTANTE : Um estudo pode ter mais de um label, porém aqui estamos considerando apenas
         # o primeiro label.
+
+        labels_counter = Counter()
+
         studies = []
         for patient_id, studies_dict in split_data.items():
             for study_id, info in studies_dict.items():
-                chex_label = info.get("chexpert", ["Unknown"])[0]
-                text_path = info.get("study")
+                # verificar se possui algum label do CheXpert
+                chex_labels = info.get("chexpert", [])
+                # ignorar textos unknown
+                if not chex_labels:
+                    continue
+                else:
+                    # considera apenas a primeira label
+                    chex_label = chex_labels[0].lower() 
+
+                # verifica se possui imagens 
                 img_paths = info.get("images", [])
+                if not img_paths:
+                    continue  # pular se não há imagens
+                
+                # obtem textos
+                text_path = info.get("study")
+
+                # limita cada label a possuir um número máximo de amostras
+                if labels_counter[chex_label] >= n_samples:
+                    continue
+                labels_counter[chex_label] += 1
+
                 studies.append({
+                    "id": study_id,
                     "text": text_path,
                     "images": img_paths,
                     "label": chex_label
                 })
-        
-        # Embaralhar e limitar quantidade de dados
-        random.shuffle(studies)
-        studies = studies[:n_samples]
 
-        # Processamento dos dados
+        # Embaralhar e cortar
+        # random.shuffle(studies)
+        # studies = studies[:n_samples]
+
+        # Processar cada estudo
         for idx, study in enumerate(studies, start=1):
-            text_file = study["text"]
+            study_id = study["id"]
+            # text_file = study["text"]
+            text_file = os.path.normpath(study["text"])
             label = study["label"]
             img_files = study["images"]
 
-            # Carregar texto
-            
-            text_content = text_file
-            
-            #try:
-            #    with open(text_file, "r", encoding="utf-8", errors="ignore") as tf:
-            #        text_content = tf.read()
-            #except Exception as e:
-            #    print(f"[WARN] Falha ao ler {text_file}: {e}")
-            #    continue
-            
-            # Obtendo apenas a parte do laudo após findings.
+            # if not os.path.isabs(text_file):
+            #     text_file = os.path.join(files_dir, text_file)
+            if not os.path.isabs(text_file):
+                if text_file.startswith("files" + os.sep):
+                    text_file = os.path.join(os.path.dirname(files_dir), text_file)
+                else:
+                    text_file = os.path.join(files_dir, text_file)
+            if not os.path.exists(text_file):
+                print(f"[WARN] Texto não encontrado: {text_file}")
+                continue
+
+            with open(text_file, "r", encoding="utf-8", errors="ignore") as tf:
+                text_content = tf.read()
+
+            # # Ler texto do arquivo
+            # try:
+            #     with open(text_file, "r", encoding="utf-8", errors="ignore") as tf:
+            #         text_content = tf.read()
+            # except Exception as e:
+            #     print(f"[WARN] Falha ao ler {text_file}: {e}")
+            #     continue
+
+            # Filtrar seção após "findings:"
             if filter_text:
-                parts = text_content.lower().split("findings")
+                parts = text_content.lower().split("findings:")
                 text_content = parts[-1].strip() if len(parts) > 1 else text_content.strip()
 
+            # Criar pasta de imagens do estudo
+            study_img_dir = os.path.join(img_dir, study_id)
+            os.makedirs(study_img_dir, exist_ok=True)
 
-            # salvar uma imagem (a primeira) ###### --->> devemos salvar todas as imagens do estudo
-            if not img_files:
-                continue # caso não tenha imagem deve pular o caso
-            img_in = img_files[0]
-            img_out = os.path.join(img_dir, f"{idx:05d}.jpg") 
-
-            # Salvar texto
-            txt_out = os.path.join(txt_dir, f"{idx:05d}.txt")
+            # Salvar texto (1 por estudo)
+            txt_out = os.path.join(txt_dir, f"{study_id}_{label}.txt")
             with open(txt_out, "w", encoding="utf-8") as out:
-                out.write(f"{label}\n{text_content}")
-                
-            try:
-                img = Image.open(img_in).convert("RGB")
-                img = img.resize((img_res, img_res))
-                img.save(img_out)
-            except Exception as e:
-                print(f"[WARN] Falha ao processar imagem {img_in}: {e}")
+                out.write(f"{text_content}")
 
-    return f'PROCESSO CONCLUÍDO COM SUCESSO.\nDiretório criado em: {output_dir}'
+            # Salvar todas as imagens do estudo
+            for img_idx, img_in in enumerate(img_files, start=1):
+                img_path = os.path.normpath(img_in)
+
+                if not os.path.isabs(img_path):
+                    if img_path.startswith("files" + os.sep):
+                        img_path = os.path.join(os.path.dirname(files_dir), img_path)
+                    else:
+                        img_path = os.path.join(files_dir, img_path)
+
+                if not os.path.exists(img_path):
+                    print(f"[WARN] Imagem não encontrada: {img_path}")
+                    continue
+
+                try:
+                    img = Image.open(img_path).convert("RGB")
+                    img = img.resize((img_res, img_res))
+                    img_out = os.path.join(study_img_dir, f"{os.path.basename(img_path)}.jpg")
+                    img.save(img_out)
+                except Exception as e:
+                    print(f"[WARN] Falha ao processar imagem {img_path}: {e}")
+
+    return f"Processo concluído com sucesso\nNúmero de amostras:\n{labels_counter=}\nDiretório criado em: {output_dir}"
 
 if __name__ == '__main__':
 
@@ -278,12 +328,13 @@ if __name__ == '__main__':
     #     r'C:\IA368'
     #     )
     
-    #balanced_data(
-    #    r'C:\IA368\small_mimic_cxr\mimic_small\files',
-    #    r'C:\IA368\MIMIC_SPLIT.json',
-    #    10,
-    #    5,
-    #    224
-    #)
+    print(balanced_data(
+       r'C:\IA368\small_mimic_cxr\mimic_small\files',
+       r'C:\IA368\MIMIC_SPLIT.json',
+       10,
+       5,
+       224,
+       False
+    ))
 
-    print('The code has been started')
+    # print('The code has been started')
