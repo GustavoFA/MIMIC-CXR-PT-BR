@@ -186,19 +186,21 @@ def balanced_data(files_dir:str,
         Para os textos temos que obter apenas a parte depois de findings
     '''
 
-    # carregar o json
+    # Carregar o json com as divisões feitas por paciente/estudo
     with open(split_mimic_file, 'r') as f:
         mimic_split = json.load(f)
-
+    # Caminho de saída
     output_dir = os.path.join(os.path.dirname(files_dir), 'mimic_balanced')
     os.makedirs(output_dir, exist_ok=True)
-
+    # Percorrer cada split (treino e validação)
     for split_name, split_data in mimic_split.items():
+        # Para o caso de teste não temos que tratar o dataset
         if split_name == 'test':
             continue
-    
+        
+        # número de amostras por split
         n_samples = n_train if split_name == 'train' else n_val
-
+        # diretórios
         split_dir = os.path.join(output_dir, split_name)
         img_dir = os.path.join(split_dir, "images")
         txt_dir = os.path.join(split_dir, "texts")
@@ -206,7 +208,9 @@ def balanced_data(files_dir:str,
         os.makedirs(img_dir, exist_ok=True)
         os.makedirs(txt_dir, exist_ok=True)
         
-        # Coleta dos dados
+        # Coleta dos dados baseado nos labels do CheXpert 
+        # IMPORTANTE : Um estudo pode ter mais de um label, porém aqui estamos considerando apenas
+        # o primeiro label.
         studies = []
         for patient_id, studies_dict in split_data.items():
             for study_id, info in studies_dict.items():
@@ -219,39 +223,44 @@ def balanced_data(files_dir:str,
                     "label": chex_label
                 })
         
-        # embaralhar e cortar
+        # Embaralhar e limitar quantidade de dados
         random.shuffle(studies)
         studies = studies[:n_samples]
 
-        # processar
+        # Processamento dos dados
         for idx, study in enumerate(studies, start=1):
             text_file = study["text"]
             label = study["label"]
             img_files = study["images"]
 
-            # carregar e filtrar texto
-            try:
-                with open(text_file, "r", encoding="utf-8", errors="ignore") as tf:
-                    text_content = tf.read()
-            except Exception as e:
-                print(f"[WARN] Falha ao ler {text_file}: {e}")
-                continue
-
+            # Carregar texto
+            
+            text_content = text_file
+            
+            #try:
+            #    with open(text_file, "r", encoding="utf-8", errors="ignore") as tf:
+            #        text_content = tf.read()
+            #except Exception as e:
+            #    print(f"[WARN] Falha ao ler {text_file}: {e}")
+            #    continue
+            
+            # Obtendo apenas a parte do laudo após findings.
             if filter_text:
                 parts = text_content.lower().split("findings")
                 text_content = parts[-1].strip() if len(parts) > 1 else text_content.strip()
 
-            # salvar texto
+
+            # salvar uma imagem (a primeira) ###### --->> devemos salvar todas as imagens do estudo
+            if not img_files:
+                continue # caso não tenha imagem deve pular o caso
+            img_in = img_files[0]
+            img_out = os.path.join(img_dir, f"{idx:05d}.jpg") 
+
+            # Salvar texto
             txt_out = os.path.join(txt_dir, f"{idx:05d}.txt")
             with open(txt_out, "w", encoding="utf-8") as out:
                 out.write(f"{label}\n{text_content}")
-
-            # salvar uma imagem (a primeira)
-            if not img_files:
-                continue
-            img_in = img_files[0]
-            img_out = os.path.join(img_dir, f"{idx:05d}.jpg")
-
+                
             try:
                 img = Image.open(img_in).convert("RGB")
                 img = img.resize((img_res, img_res))
@@ -269,11 +278,12 @@ if __name__ == '__main__':
     #     r'C:\IA368'
     #     )
     
-    balanced_data(
-        r'C:\IA368\small_mimic_cxr\mimic_small\files',
-        r'C:\IA368\MIMIC_SPLIT.json',
-        10,
-        5,
-        224
-    )
+    #balanced_data(
+    #    r'C:\IA368\small_mimic_cxr\mimic_small\files',
+    #    r'C:\IA368\MIMIC_SPLIT.json',
+    #    10,
+    #    5,
+    #    224
+    #)
 
+    print('The code has been started')
