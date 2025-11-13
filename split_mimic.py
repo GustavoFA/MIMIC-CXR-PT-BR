@@ -7,9 +7,9 @@ from collections import Counter
 
 def split_mimic_files(files_dir:str, 
              json_path:str=None, 
-             n_train:int=100000, 
-             n_val:int=50000, 
-             n_test:int=7 # few data
+             n_train:int=None, 
+             n_val:int=None, 
+             n_test:int=None # few data
              ) -> dict:
     '''
         Function to split the MIMIC-CXR data into training, validation, and test sets. 
@@ -29,9 +29,7 @@ def split_mimic_files(files_dir:str,
 
         --------------------------------------------
 
-        JSON data example:
-
-        Data example:
+        Final JSON data example:
 
         'train' : {
             'p10000032': {
@@ -67,7 +65,6 @@ def split_mimic_files(files_dir:str,
         df_split = pd.read_csv(os.path.join(files_dir, 'mimic-cxr-2.0.0-split.csv'))
         df_chexpert = pd.read_csv(os.path.join(files_dir, 'mimic-cxr-2.0.0-chexpert.csv'))
         df_negbio = pd.read_csv(os.path.join(files_dir, 'mimic-cxr-2.0.0-negbio.csv'))  
-        df_mimic_set_label = pd.read_csv(os.path.join(files_dir, 'mimic-cxr-2.1.0-test-set-labeled.csv'))
     # files folder name
     dir_files = r'files'
     # split limit
@@ -85,11 +82,12 @@ def split_mimic_files(files_dir:str,
 
     # Read split CSV
     for _, row in df_split.iterrows():
-        if (count['train'] + count['validate'] + count['test']) >= (n_train + n_val + n_test):
-            break   
-        split = row['split']
-        if count[split] >= limit[split]:
-            continue
+        if (n_train is not None) and (n_val is not None) and (n_test is not None):
+            if (count['train'] + count['validate'] + count['test']) >= (n_train + n_val + n_test):
+                break   
+            split = row['split']
+            if count[split] >= limit[split]:
+                continue
         sub_id = str(row['subject_id'])
         study_id = row['study_id']
         image_id = row['dicom_id']
