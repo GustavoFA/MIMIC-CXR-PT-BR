@@ -1,17 +1,16 @@
 import os
 import json
-import random
 import pandas as pd
 from tqdm import tqdm
 from PIL import Image
 from collections import Counter
 
-def split_mimic_files(files_dir:str, 
-             json_path:str=None, 
-             n_train:int=None, 
-             n_val:int=None, 
-             n_test:int=None # few data
-             ) -> dict:
+def split_mimic_files(files_dir: str, 
+                      json_path: str = None, 
+                      n_train: int = None, 
+                      n_val: int = None, 
+                      n_test: int = None  # few data
+                      ) -> dict:
     '''
         Function to split the MIMIC-CXR data into training, validation, and test sets. 
         The split is performed by subject and study. For each study, the function stores 
@@ -35,10 +34,10 @@ def split_mimic_files(files_dir:str,
         'train' : {
             'p10000032': {
                 's50414267': {
-                    'study': all_path\study.txt,
+                    'study': all_path\\study.txt,
                     'images': [
-                        all_path\image1.jpg,
-                        all_path\image2.jpg
+                        all_path\\image1.jpg,
+                        all_path\\image2.jpg
                     ],
                     'chexpert': [
                         label1,
@@ -55,40 +54,45 @@ def split_mimic_files(files_dir:str,
 
     # dict to store data and specifications
     files_dict = {
-        'train' : {},
-        'validate' : {},
-        'test' : {}
+        'train': {},
+        'validate': {},
+        'test': {}
     }
-    # check files path
+
+    # Check files path
     if not os.path.exists(files_dir):
         raise ValueError('Invalid path')
     else:
         df_split = pd.read_csv(os.path.join(files_dir, 'mimic-cxr-2.0.0-split.csv'))
         df_chexpert = pd.read_csv(os.path.join(files_dir, 'mimic-cxr-2.0.0-chexpert.csv'))
-        df_negbio = pd.read_csv(os.path.join(files_dir, 'mimic-cxr-2.0.0-negbio.csv'))  
-    # files folder name
+        df_negbio = pd.read_csv(os.path.join(files_dir, 'mimic-cxr-2.0.0-negbio.csv'))
+
+    # Files folder name
     dir_files = r'files'
-    # split limit
+
+    # Split limits
     limit = {
-        'train' : n_train,
+        'train': n_train,
         'validate': n_val,
         'test': n_test
     }
-    # count split
+
+    # Counter for each split
     count = {
-        'train' : 0,
+        'train': 0,
         'validate': 0,
         'test': 0
     }
 
-    # Read split CSV
-    for _, row in df_split.iterrows():
+    print("Processing split file...")
+    for _, row in tqdm(df_split.iterrows(), total=len(df_split), desc="Building study splits"):
+        split = row['split']
         if (n_train is not None) and (n_val is not None) and (n_test is not None):
             if (count['train'] + count['validate'] + count['test']) >= (n_train + n_val + n_test):
                 break   
-            split = row['split']
             if count[split] >= limit[split]:
                 continue
+
         sub_id = str(row['subject_id'])
         study_id = row['study_id']
         image_id = row['dicom_id']
@@ -116,8 +120,8 @@ def split_mimic_files(files_dir:str,
 
         # Add image
         split_dict[sub_id][study_id]['images'].append(image_path)  
-    
-    # labels
+
+    # Define labels used by CheXpert and NegBio
     chexpert_negbio_labels = [
         "Atelectasis",
         "Cardiomegaly",
@@ -135,41 +139,39 @@ def split_mimic_files(files_dir:str,
         "Support Devices"
     ]
 
-
-    # Read cheXpert
-    for _, row in df_chexpert.iterrows():
+    # Read CheXpert
+    print("Assigning CheXpert labels...")
+    for _, row in tqdm(df_chexpert.iterrows(), total=len(df_chexpert), desc="CheXpert labels"):
         sub_id = f"p{str(int(row['subject_id']))}"
         study_id = f"s{str(int(row['study_id']))}"
         for split in files_dict:
             if sub_id in files_dict[split] and study_id in files_dict[split][sub_id]:
-                labels = []
-                for label in chexpert_negbio_labels:
-                    if row[label] == 1.0:
-                        labels.append(label)
+                labels = [label for label in chexpert_negbio_labels if row[label] == 1.0]
                 files_dict[split][sub_id][study_id]['chexpert'] = labels
 
     # Read NegBio
-    for _, row in df_negbio.iterrows():
+    print("Assigning NegBio labels...")
+    for _, row in tqdm(df_negbio.iterrows(), total=len(df_negbio), desc="NegBio labels"):
         sub_id = f"p{str(int(row['subject_id']))}"
         study_id = f"s{str(int(row['study_id']))}"
         for split in files_dict:
             if sub_id in files_dict[split] and study_id in files_dict[split][sub_id]:
-                labels = []
-                for label in chexpert_negbio_labels:
-                    if row[label] == 1.0:
-                        labels.append(label)
+                labels = [label for label in chexpert_negbio_labels if row[label] == 1.0]
                 files_dict[split][sub_id][study_id]['negbio'] = labels
 
     # Save JSON file
     if json_path is None or not os.path.exists(json_path):
-        # Save in the Python script dir
+        # Save in the Python script directory
         json_path = os.path.join(os.path.dirname(__file__), 'MIMIC_SPLIT.json')
     else:
         json_path = os.path.join(json_path, 'MIMIC_SPLIT.json')
+
     with open(json_path, 'w', encoding='utf-8') as f:
         json.dump(files_dict, f, indent=2, ensure_ascii=False)
-    print(f'JSON file saved on {json_path}')
-    
+
+    print(f"\nJSON file saved successfully at: {json_path}")
+    print(f"Samples per split: {count}")
+
     return files_dict
 
 def generate_balanced_data(files_dir: str,
@@ -302,11 +304,11 @@ def generate_balanced_data(files_dir: str,
 
 if __name__ == '__main__':
 
-    # print('Running the split mimic files -> generating JSON split')
-    # split_mimic_files(
-    #     r'C:\IA368\small_mimic_cxr\mimic_small',
-    #     r'C:\IA368'
-    # )
+    print('Running the split mimic files -> generating JSON split')
+    split_mimic_files(
+        r'F:\MIMIC-CXR\mimic',
+        r'C:\IA368'
+    )
 
     # print('Running generate balanced data')
     # print(generate_balanced_data(
