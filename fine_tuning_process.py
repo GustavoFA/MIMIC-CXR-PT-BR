@@ -19,13 +19,13 @@ from ClassDataset import ImageAndStudyDataset
 
 
 # Path to main dir with train and validate set
-_files_folder_path = r'/home/ia368/projetos/fine_tuning/MIMIC-DATA-PROCESS'
+_files_folder_path = r''
 if not os.path.exists(_files_folder_path):
     _files_folder_path = input('Insert the main files folder:\n')
 
 # creating both datasets
-train_dataset = ImageAndStudyDataset(os.path.join(_files_folder_path, 'train'))
-val_dataset = ImageAndStudyDataset(os.path.join(_files_folder_path, 'validate'))
+train_dataset = ImageAndStudyDataset(os.path.join(_files_folder_path, 'train'), filter_text=False)
+val_dataset = ImageAndStudyDataset(os.path.join(_files_folder_path, 'validate'), filter_text=False)
 
 # ----------------------------------------------------------------------------------
 # login on hugging face
@@ -137,35 +137,34 @@ def medgemma_collate_fn(examples: list[dict[str, Any]], processor=processor_4b):
     return batch
 
 # ---------------- Train Args -------------------------------
-# save_path = os.path.join(os.path.dirname(os.path.abspath(os.path.__file__)), 'FineTuningModels', 'medgemma-4b-it-lora-0')
-root_lora_save_path = r'/home/ia368/projetos/fine_tuning/LoRA_saves'
-lora_name_file = 'medgemma-4b-it-lora-4'
+root_lora_save_path = r''
+lora_name_file = 'medgemma-4b-it-lora-5'
 save_path = os.path.join(root_lora_save_path, lora_name_file)
 
 args = SFTConfig(
-    # local para salvar os pesos do LoRA
+    # local to save the lora weights
     output_dir=save_path, 
 
-    # treinamento e validação
+    # Training and validate
     num_train_epochs=4, 
-    per_device_train_batch_size=1, # batch size de 1
+    per_device_train_batch_size=1, # batch size = 1 (GPU limitation)
     per_device_eval_batch_size=1, 
-    gradient_accumulation_steps=16, # recomendado
+    gradient_accumulation_steps=16, # recommended for the GPU limitation
     gradient_checkpointing=True,
     optim='adamw_torch_fused',
     logging_steps=1,
 
-    # registros (checkpoints)
-    save_strategy='steps',  # passos do gradiente
-    save_steps=100,           # num de passos
-    save_total_limit=5,    # limite de checkpoints
-    save_only_model=True, # salvar apenas os pesos do LoRA
+    # checkpoints (saves)
+    save_strategy='steps',  # save of some gradient steps
+    save_steps=100,           # number of steps
+    save_total_limit=5,    # number of checkpoints on the dir
+    save_only_model=True, # save only weights
 
-    # Para validação
-    eval_strategy='steps', # validação desde os primeiros passos
+    # Validation
+    eval_strategy='steps', 
     eval_steps=1,
 
-    # outros pontos indicados pela Google
+    
     learning_rate=2e-4,
     bf16=True,
     max_grad_norm=0.3,
