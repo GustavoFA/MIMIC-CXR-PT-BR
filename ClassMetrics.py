@@ -2,6 +2,10 @@ from bert_score import score
 from transformers import AutoTokenizer
 
 class Metrics:
+    """
+        Collection of utilities for evaluating text generation quality in MedGemma models.
+        Provides BERTScore-based metrics for Portuguese and multilingual comparisons.
+    """
 
     def __init__(self):
         self.tokenizer = AutoTokenizer.from_pretrained("neuralmind/bert-base-portuguese-cased")
@@ -20,7 +24,7 @@ class Metrics:
         prec, rec, f1 = score(
             [text],
             [ref],
-            model_type="neuralmind/bert-base-portuguese-cased", # limitação de 512 tokens
+            model_type="neuralmind/bert-base-portuguese-cased", # This model has the limitation of 512 tokens
             num_layers=12,
             lang='pt',
             verbose=verbose
