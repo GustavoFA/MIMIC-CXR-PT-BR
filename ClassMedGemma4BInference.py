@@ -6,41 +6,42 @@ from peft import PeftModel
 from huggingface_hub import login
 from transformers import AutoModelForImageTextToText, AutoProcessor, BitsAndBytesConfig
 
-'''
-    Situações que iremos usar dessa classe:
-        * FineTuning -> apenas passar imagens e pedir para gerar o texto (podemos testar com EN e PT)
-        * MedGemma4B padrão -> esse pode ser destrinchado em vários casos:
-            * ZeroShot -> Apenas passar as imagens e pedir para gerar texto (com prompt em PT-BR)
-            * FewShot -> Apresentar um exemplo de saída e pedir para fazer o mesmo com as imagens que enviar.
-'''
-
 
 class MedGemma4BInference():
+    """
+        Inference wrapper for the MedGemma-4B-IT model.
+        
+        This class handles:
+        - Loading the base MedGemma 4B IT model (with optional 4-bit quantization)
+        - Loading and applying LoRA checkpoints
+        - Preprocessing text & images using the model processor
+        - Running inference to generate medical reports or answers
+    """
 
     def __init__(self):
         
-        # Modelo base
+        # Base model
         self.model_id = 'google/medgemma-4b-it'
-        # Acesso ao Hugging Face para obter o modelo
+        # Login into Hugging Face (insert your API key here)
         login()
-        # Inicialização do processador e do modelo
+        # Initialize processor and model
         self.load_processor()
         self.load_model()
 
     def load_processor(self):
-        ''' Carregar o processor do MedGemma4B '''
+        """Load MedGemma4B processor and configure tokenizer padding."""
         self.processor = AutoProcessor.from_pretrained(self.model_id)
         self.processor.tokenizer.padding_side = "right"
 
     def load_model(self, quantization:bool=True):
-        ''' Carregar modelo do MedGemma4B '''
+        """Load MedGemma4B model, optionally using 4-bit quantization."""
         model_kwargs = dict(
             attn_implementation="eager",
             torch_dtype=torch.bfloat16,
             device_map="auto",
         )
         if quantization:
-            # quantização 4bit
+            # Enable 4-bit quantization using bitsandbytes
             model_kwargs["quantization_config"] = BitsAndBytesConfig(
                 load_in_4bit=True,
                 bnb_4bit_use_double_quant=True,
@@ -55,11 +56,11 @@ class MedGemma4BInference():
         )
 
     def apply_lora(self, lora_checkpoint_path:str):
-        ''' Aplicação do LoRA no modelo '''
+        """Load a LoRA checkpoint and merge it with the base model."""
         self.model = PeftModel.from_pretrained(self.model, lora_checkpoint_path)
 
     def processor_data(self, message, images, dtype=None):
-        ''' Passar textos e imagens para formato aceito pelo modelo '''
+        """Format text + images into the structure required by MedGemma."""
         input_text = self.processor.apply_chat_template(
             message,
             add_generation_prompt=False,
@@ -80,15 +81,14 @@ class MedGemma4BInference():
 
     def load_image(self, image_input):
         """
-        Carrega uma ou mais imagens (a partir de caminho, bytes ou BytesIO)
-        e converte todas para RGB (formato necessário para o MedGemma).
-        Retorna uma única imagem (PIL.Image) ou uma lista de imagens, conforme o input.
+            Loads one or more images (path, bytes, or BytesIO) and converts them to RGB.
+            Returns a single image or a list of images depending on the input type.
         """
         def _load_single_image(single_input):
-            """Carrega uma única imagem e converte para RGB."""
+            """Load a single image and convert it to RGB."""
             if isinstance(single_input, (str, os.PathLike)):
                 if not os.path.exists(single_input):
-                    raise FileNotFoundError(f"O arquivo de imagem '{single_input}' não foi encontrado.")
+                    raise FileNotFoundError(f"Image file '{single_input}' was not found.")
                 return Image.open(single_input).convert('RGB')
 
             elif isinstance(single_input, (bytes, bytearray, io.BytesIO)):
@@ -97,10 +97,10 @@ class MedGemma4BInference():
                 return Image.open(single_input).convert('RGB')
 
             else:
-                raise TypeError("Cada elemento deve ser um caminho (str) ou um objeto de arquivo em memória.")
+                raise TypeError("Each element must be a file path (str) or an in-memory file object.")
 
         try:
-            # Caso o input seja uma lista ou tupla de imagens
+             # List or tuple to load multiple images
             if isinstance(image_input, (list, tuple)):
                 images = []
                 for idx, img in enumerate(image_input):
@@ -108,34 +108,34 @@ class MedGemma4BInference():
                         loaded = _load_single_image(img)
                         images.append(loaded)
                     except Exception as e:
-                        print(f"[ERRO] Falha ao carregar imagem {idx + 1}: {e}")
-                return images  # lista de imagens
+                        print(f"[ERROR] Failed to load image {idx + 1}: {e}")
+                return images  
 
-            # Caso seja apenas uma imagem
+            # Single image
             else:
                 return _load_single_image(image_input)
 
         except Exception as e:
-            print(f"[ERRO] Falha ao carregar imagem(s): {e}")
+            print(f"[ERROR] Failed to load image(s): {e}")
             return None
 
     def generate_results(self, text, image_inputs, sys_prompt=None):
-        ''' Geração de texto com MedGemma tendo como entrada texto e imagens '''
-        # Garante que image_inputs é uma lista
+        """Generate text from MedGemma using text + image inputs."""
+        # Force image_inputs to be a list
         if not isinstance(image_inputs, list):
             image_inputs = [image_inputs]
 
-        # Carrega todas as imagens
+        # Load all images
         images = []
         for img_input in image_inputs:
             img = self.load_image(img_input)
             if img is not None:
                 images.append(img)
             else:
-                print(f"[ERRO] Falha ao carregar: {img_input}")
+                print(f"[ERROR] Could not load: {img_input}")
 
         if not images:
-            raise ValueError("[ERRO] Nenhuma imagem válida foi carregada. Abortando requisição.")
+            raise ValueError("[ERROR] No valid images were loaded. Aborting request.")
 
         message = [
             {
@@ -159,14 +159,14 @@ class MedGemma4BInference():
                 ]
             })
 
-        # Adiciona imagens ao prompt
+        # Insert image tokens in the user message
         pos = 0 if sys_prompt is None else 1
         for img in images:
             message[pos]["content"].append({"type": "image"})
 
         inputs = self.processor_data(message=message, images=images, dtype=torch.bfloat16)
 
-        # Geração
+        # Generate response
         outputs = self.model.generate(**inputs, max_new_tokens=512)
         response = self.processor.decode(outputs[0], skip_special_tokens=True)
 
@@ -176,11 +176,11 @@ if __name__ == "__main__":
 
     medgemma4b = MedGemma4BInference()
 
-    lora_checkpoint = r'/home/ia368/projetos/fine_tuning/LoRA_saves/medgemma-4b-it-lora-4/checkpoint-240'
-    # medgemma4b.apply_lora(lora_checkpoint)
+    lora_checkpoint = r'/home/ia368/projetos/fine_tuning/LoRA_saves/medgemma-4b-it-lora-5/checkpoint-240'
+    medgemma4b.apply_lora(lora_checkpoint)
 
     imgs = [
-        '/home/ia368/projetos/fine_tuning/MIMIC-DATA-PROCESS/test/images/s50008596/2f108c10-c8669b9a-f7f02e0f-272d2904-dd0b345e.jpg.jpg',
-        '/home/ia368/projetos/fine_tuning/MIMIC-DATA-PROCESS/test/images/s50008596/5d7c1542-0e986689-16b380fc-7640a95a-8ef99ac8.jpg.jpg'
+        '/home/ia368/projetos/fine_tuning/MIMIC-DATA-PROCESS/test/images/s50008596/2f108c10-c8669b9a-f7f02e0f-272d2904-dd0b345e.jpg',
+        '/home/ia368/projetos/fine_tuning/MIMIC-DATA-PROCESS/test/images/s50008596/5d7c1542-0e986689-16b380fc-7640a95a-8ef99ac8.jpg'
     ]
     print(medgemma4b.generate_results('Dê o diagnóstico do raio-x apresentado.', imgs))
