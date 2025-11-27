@@ -11,34 +11,6 @@ from ClassMetrics import Metrics
 from ClassMedGemma4BInference import MedGemma4BInference
 
 
-'''
-    tem que ter a função de zeroshot -> usar com medgemma4b padrão e ajustado
-
-    função fewshot -> acho que vale a pena apenas para o caso do padrão
-
-    salvar resultados em um json para ser plotado futuramente
-
-    JSON:
-        {
-            estudo: {
-                ref_en: str,
-                ref_pt: str,
-                text_ger: str,
-                bert: {
-                    p:float,
-                    r:float,
-                    f1:float
-                },
-                bertimbau: {
-                    p:float,
-                    r:float,
-                    f1:float
-                }
-            }
-        }
-        
-'''
-
 def run_medgemma4b_generation(
         files_path:str, 
         file_results_name:str,
@@ -48,53 +20,112 @@ def run_medgemma4b_generation(
         run_metrics:bool=True,
         save_graph:bool=True,
         ) -> None:
-    
+    """
+    Runs MedGemma-4B inference on all studies inside a dataset folder, optionally
+    evaluates the generated reports using BERTScore (Portuguese[BERTimbau] and English), and
+    saves both the JSON results and their corresponding metric plots.
+
+    The dataset is expected to follow this structure:
+        files_path/
+            images/
+                <study_id>/
+                    image1.jpg
+                    image2.jpg
+                    ...
+            texts_pt/
+                <study_id>_xxx.txt   # Portuguese reference report
+            texts_en/
+                <study_id>_xxx.txt   # English reference report
+
+    Parameters
+    ----------
+    files_path : str
+        Path to the dataset root containing the images/ and texts_* directories.
+
+    file_results_name : str
+        Base name used to save the output JSON and metric figures. A folder with
+        this name will be created automatically.
+
+    text_user_input : str
+        The user prompt sent to the MedGemma model.
+
+    text_sys_input : str, optional
+        Optional system prompt for MedGemma.
+
+    load_LoRA : str, optional
+        Path to a LoRA checkpoint. If provided, the model will be loaded with LoRA.
+
+    run_metrics : bool, default=True
+        Whether BERTScore metrics should be computed.
+
+    save_graph : bool, default=True
+        Whether metric plots should be generated and saved.
+
+    Returns
+    -------
+    None
+        All outputs (JSON + plots) are written to disk.
+    """
+
+    # Initialize metrics and MedGemma classes
     metrics = Metrics()
     medgemma4b = MedGemma4BInference()
 
     if load_LoRA is not None:
         medgemma4b.apply_lora(load_LoRA)
 
-    # Verificar se o caminho dos arquivos existe 
+    # Build the directory structure (expected layout)
+    '''
+    test_files/
+        images/
+            study_001/
+                img1.jpg
+                img2.jpg
+        texts_pt/
+            study_001_xxx.txt
+        texts_en/
+            study_001_xxx.txt
+    '''
     test_dir = Path(files_path)
     images_root = test_dir / "images"
-    texts_root = test_dir / "texts"
+    texts_root_pt = test_dir / "texts_pt"
+    texts_root_en = test_dir / "texts_en"
 
     if not images_root.exists():
-        raise RuntimeError("A pasta 'images' não existe dentro de test/")
+        raise RuntimeError("The 'images' directory does not exist in the provided path.")
     
-    if not texts_root.exists():
-        raise RuntimeError("A pasta 'texts' não existe dentro de test/")
+    if not texts_root_pt.exists() or not texts_root_en.exists():
+        raise RuntimeError("The 'texts' directory does not exist in the provided path.")
     
-    # -----------------------------------------------------------
-    # Criar pasta de saída com o nome do file_results_name
-    # -----------------------------------------------------------
+    # JSON output
     if ".json" not in file_results_name:
         file_results_name += ".json"
 
     base_name = file_results_name.replace(".json", "")
-    output_dir = Path("/home/ia368/projetos/fine_tuning/MetricsResults", base_name)
+    # Below, insert the path for results
+    output_dir = Path(r"", base_name)
     output_dir.mkdir(parents=True, exist_ok=True)
-
-    # Caminho final do JSON
     results_file = output_dir / file_results_name
     # -----------------------------------------------------------
 
-    # Carregar JSON existente, se houver
+    # Load JSON (if it exists)
     if results_file.exists():
         with open(results_file, 'r', encoding='utf-8') as f:
             results = json.load(f)
     else:
         results = {}
 
-    mean_precision = []
-    mean_recall = []
-    mean_f1 = []
+    # Metrics
+    mean_precision_pt = []
+    mean_recall_pt = []
+    mean_f1_pt = []
 
-    # percorre cada estudo dentro de images/
+    mean_precision_en = []
+    mean_recall_en = []
+    mean_f1_en = []
+
+    # Generation
     study_folders = [f for f in images_root.iterdir() if f.is_dir()]
-
-
     pbar = tqdm(study_folders, ncols=100)
     for study_folder in pbar:
         pbar.set_description(f"Running MedGemma4B on study: {study_folder.name}")
@@ -108,83 +139,131 @@ def run_medgemma4b_generation(
             'text_gen': message_result
         }
 
-        if run_metrics:
-            matches = list(texts_root.glob(f"{study_folder.name}_*.txt"))
-            if len(matches) == 0:
-                print(f"[AVISO] Nenhum texto encontrado para estudo {study_folder.name}")
+        if run_metrics: 
+            # Portuguese metrics
+            matches_pt = list(texts_root_pt.glob(f"{study_folder.name}_*.txt"))
+            if len(matches_pt) == 0:
+                print(f"[WARN] No reference text was found for study {study_folder.name}.")
                 continue
 
-            with open(matches[0], "r", encoding="utf-8") as f:
+            with open(matches_pt[0], "r", encoding="utf-8") as f:
                 text = f.read()
 
             results[study_folder.name]['ref_pt'] = text
-            precision, recall, f1_score = metrics.bert_score_pt_br(text, message_result)
+            precision_pt, recall_pt, f1_score_pt = metrics.bert_score_pt_br(text, message_result)
 
-            mean_precision.append(precision)
-            mean_recall.append(recall)
-            mean_f1.append(f1_score)
+            mean_precision_pt.append(precision_pt)
+            mean_recall_pt.append(recall_pt)
+            mean_f1_pt.append(f1_score_pt)
 
             results[study_folder.name]['bertimbau'] = {
-                'p': precision,
-                'r': recall,
-                'f1': f1_score
+                'p': precision_pt,
+                'r': recall_pt,
+                'f1': f1_score_pt
             }
+            
+            # English metrics
+            matches_en = list(texts_root_en.glob(f"{study_folder.name}_*.txt"))
+            if len(matches_en) == 0:
+                print(f"[WARN] No reference text was found for study {study_folder.name}.")
+                continue
 
-    if len(mean_f1):
-        results['mean_precision'] = sum(mean_precision) / len(mean_precision)
-        results['mean_recall'] = sum(mean_recall) / len(mean_recall)
-        results['mean_f1'] = sum(mean_f1) / len(mean_f1)
+            with open(matches_en[0], "r", encoding="utf-8") as f:
+                text = f.read()
 
-    # -----------------------------------------------------------
-    # Salvar JSON dentro da pasta específica
-    # -----------------------------------------------------------
+            results[study_folder.name]['ref_en'] = text
+            precision_en, recall_en, f1_score_en = metrics.bert_score_multlanguage(text, message_result)
+
+            mean_precision_en.append(precision_en)
+            mean_recall_en.append(recall_en)
+            mean_f1_en.append(f1_score_en)
+
+            results[study_folder.name]['bert'] = {
+                'p': precision_en,
+                'r': recall_en,
+                'f1': f1_score_en
+            }
+    
+    # Add mean values to the JSON
+    if len(mean_f1_pt):
+        results['mean_precision_pt'] = sum(mean_precision_pt) / len(mean_precision_pt)
+        results['mean_recall_pt'] = sum(mean_recall_pt) / len(mean_recall_pt)
+        results['mean_f1_pt'] = sum(mean_f1_pt) / len(mean_f1_pt)
+
+    if len(mean_f1_en):
+        results['mean_precision_en'] = sum(mean_precision_en) / len(mean_precision_en)
+        results['mean_recall_en'] = sum(mean_recall_en) / len(mean_recall_en)
+        results['mean_f1_en'] = sum(mean_f1_en) / len(mean_f1_en)
+
+    # Save JSON
     with open(results_file, 'w', encoding='utf-8') as f:
         json.dump(results, f, indent=4, ensure_ascii=False)
 
-    # -----------------------------------------------------------
-    # Salvar gráfico dentro da mesma pasta
-    # -----------------------------------------------------------
-    if save_graph and metrics and len(mean_precision):
+    # Generate and save graphs
+    if save_graph and metrics:
+        #  Portuguese (bertimbau)
+        if len(mean_precision_pt):
+            x = range(1, len(mean_precision_pt) + 1)
+            plt.figure(figsize=(12, 8))
+            plt.plot(x, mean_precision_pt, label="Precision", color="#ADD8E6")
+            plt.plot(x, mean_recall_pt, label="Recall", color="#FF9999")
+            plt.plot(x, mean_f1_pt, label="F1-score", color="#FFFF99")
 
-        import matplotlib.pyplot as plt
-        from matplotlib.ticker import MaxNLocator
 
-        x = range(1, len(mean_precision) + 1)
+            plt.axhline(results['mean_precision_pt'], linestyle="--", color="#00008B", label="Mean Precision")
+            plt.axhline(results['mean_recall_pt'], linestyle="--", color="#8B0000", label="Mean Recall")
+            plt.axhline(results['mean_f1_pt'], linestyle="--", color="#B8860B", label="Mean F1-score")
 
-        plt.figure(figsize=(12, 8))
 
-        # Curvas
-        plt.plot(x, mean_precision, label="Precision", color="#ADD8E6")
-        plt.plot(x, mean_recall, label="Recall", color="#FF9999")
-        plt.plot(x, mean_f1, label="F1-score", color="#FFFF99")
+            plt.xlabel("Samples")
+            plt.ylabel("Metric Value")
+            plt.title("BERTScore with BERTimbau")
+            plt.legend()
+            plt.grid()
+            plt.gca().xaxis.set_major_locator(MaxNLocator(integer=True))
 
-        # Linhas horizontais das médias
-        plt.axhline(results["mean_precision"], linestyle="--", label="Mean Precision", color="#00008B")
-        plt.axhline(results["mean_recall"], linestyle="--", label="Mean Recall", color="#8B0000")
-        plt.axhline(results["mean_f1"], linestyle="--", label="Mean F1-score", color="#B8860B")
 
-        plt.xlabel("Samples")
-        plt.ylabel("Metric Value")
-        plt.title("Precision, Recall, F1-score")
-        plt.legend()
-        plt.grid()
+            graph_pt = output_dir / f"{base_name}_graph_pt.jpg"
+            plt.savefig(graph_pt, format="jpg", dpi=300, bbox_inches="tight")
+            plt.close()
 
-        plt.gca().xaxis.set_major_locator(MaxNLocator(integer=True))
 
-        # Caminho final do gráfico dentro da pasta
-        graph_path = output_dir / f"{base_name}_graph.jpg"
+        # English-Pt comparison (multilingual BERTScore) 
+        if len(mean_precision_en):
+            x = range(1, len(mean_precision_en) + 1)
+            plt.figure(figsize=(12, 8))
+            plt.plot(x, mean_precision_en, label="Precision", color="#ADD8E6")
+            plt.plot(x, mean_recall_en, label="Recall", color="#FF9999")
+            plt.plot(x, mean_f1_en, label="F1-score", color="#FFFF99")
 
-        plt.savefig(graph_path, format="jpg", dpi=300, bbox_inches="tight")
-        plt.close()
+
+            plt.axhline(results['mean_precision_en'], linestyle="--", color="#00008B", label="Mean Precision")
+            plt.axhline(results['mean_recall_en'], linestyle="--", color="#8B0000", label="Mean Recall")
+            plt.axhline(results['mean_f1_en'], linestyle="--", color="#B8860B", label="Mean F1-score")
+
+
+            plt.xlabel("Samples")
+            plt.ylabel("Metric Value")
+            plt.title("BERTScore")
+            plt.legend()
+            plt.grid()
+            plt.gca().xaxis.set_major_locator(MaxNLocator(integer=True))
+
+
+            graph_en = output_dir / f"{base_name}_graph_en.jpg"
+            plt.savefig(graph_en, format="jpg", dpi=300, bbox_inches="tight")
+            plt.close()
 
 
 def run_lora(lora_path:str):
+    '''Run inference using a LoRA checkpoint.'''
 
-    lora_name = Path(lora_path).name
+    lora_name = Path(lora_path)
 
     run_medgemma4b_generation(
-        files_path=r'/home/ia368/projetos/fine_tuning/MIMIC-DATA-PROCESS/test',
-        file_results_name=lora_name,
+        # insert below the files path
+        files_path=r'',
+        file_results_name=lora_name.parents[0].name,
         text_user_input='Dê o diagnóstico das imagens apresentadas',
         text_sys_input=None,
         load_LoRA=lora_path,
@@ -193,9 +272,11 @@ def run_lora(lora_path:str):
     )
 
 def run_zero_shot(file_name:str='medgemma4b-it-default-zeroshot'):
+    '''Run inference using Zero Shot'''
     
     run_medgemma4b_generation(
-        files_path=r'/home/ia368/projetos/fine_tuning/MIMIC-DATA-PROCESS/test',
+        # insert below the files path
+        files_path=r'',
         file_results_name=file_name,
         text_user_input='Dê o diagnóstico das imagens apresentadas',
         text_sys_input=None,
@@ -205,6 +286,7 @@ def run_zero_shot(file_name:str='medgemma4b-it-default-zeroshot'):
     )
 
 def run_few_shot(file_name:str='medgemma4b-it-default-fewshot'):
+    '''Run inference using Few Shot'''
 
     text_user_input = '''
 
@@ -225,7 +307,8 @@ def run_few_shot(file_name:str='medgemma4b-it-default-fewshot'):
     '''
     
     run_medgemma4b_generation(
-        files_path=r'/home/ia368/projetos/fine_tuning/MIMIC-DATA-PROCESS/test',
+        # insert below the files path
+        files_path=r'',
         file_results_name=file_name,
         text_user_input=text_user_input,
         text_sys_input=None,
@@ -239,8 +322,9 @@ if __name__ == '__main__':
     # Zero Shot
     run_zero_shot()
 
-    # # Few Shot (just one)
-    # run_few_shot()
+    # Few Shot (just one)
+    run_few_shot()
 
-    # # LoRA
-    # run_lora()
+    # LoRA
+    # Insert below the lora checkpoint path
+    run_lora(r'')
