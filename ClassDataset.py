@@ -36,6 +36,8 @@ class ImageAndStudyDataset(Dataset):
     Input:
       - files_path (str): base directory containing 'images/' and 'texts/'.
       - sys_prompt (str): text instruction included in the user message.
+      - filter_text (bool): filter the reference text.
+      - lim_images (bool): whether to limit the number of images to 2.
 
     Output (per item):
       A dictionary with:
@@ -53,18 +55,15 @@ class ImageAndStudyDataset(Dataset):
         filter_text:bool=True,
         lim_images:bool=True
     ):
-        """
-            TEMOS QUE ALTERAR A PARTE QUE OBTEM OS TEXTOS E IMAGENS. FAZER APENAS NO 
-            GETITEM.
-        """
+
         self.images = self.load_images_from_folder(os.path.join(files_path, 'images'))
-        self.reports = self.load_texts_from_folder(os.path.join(files_path, 'texts'))
+        self.reports = self.load_texts_from_folder(os.path.join(files_path, 'texts_pt'))
         self.sys_prompt = sys_prompt
         self.filter_text = filter_text
         self.lim_images = lim_images
         
     def load_texts_from_folder(self, folder:str) -> list:
-        ''' Load texts from Colab environment '''
+        ''' Load text reports from the dataset folder. '''
         texts = []
         for filename in sorted(os.listdir(folder)):
             path = os.path.join(folder, filename)
@@ -74,7 +73,7 @@ class ImageAndStudyDataset(Dataset):
         return texts
         
     def load_images_from_folder(self, folder:str) -> list[list]:
-        ''' Load images from Colab environment files '''
+        ''' Load images from the dataset folder.'''
         all_images = []
 
         for subfolder in sorted(os.listdir(folder)):
@@ -90,7 +89,7 @@ class ImageAndStudyDataset(Dataset):
                     img = Image.open(path)
                     sub_images.append(img)
                 except Exception as e:
-                    print(f"Error to load {path}: {e}")
+                    print(f" Error loading {path}: {e}")
             if sub_images:
                 all_images.append(sub_images)
 
@@ -98,8 +97,8 @@ class ImageAndStudyDataset(Dataset):
     
     def text_filter(self, text: str) -> str:
         """
-        Extracts the ACHADOS + IMPRESSÃO sections from a medical report 
-        and removes markdown markers (**, ---) and section headers.
+            Extracts the ACHADOS + IMPRESSÃO sections from a medical report 
+            and removes markdown markers (**, ---) and section headers.
         """
 
         text_lower = text.lower()
@@ -136,13 +135,13 @@ class ImageAndStudyDataset(Dataset):
 
     def __getitem__(self, idx):
         """
-        Returns a single dataset item formatted according to the
-        multimodal format expected by the MedGemma processor.
+            Returns a single dataset item formatted according to the
+            multimodal format expected by the MedGemma processor.
 
-        The "messages" structure follows this logic:
-            - Each image is represented as {"type": "image"}.
-            - After all images, the system/user prompt is added as text.
-            - The medical report is provided as the assistant's response.
+            The "messages" structure follows this logic:
+                - Each image is represented as {"type": "image"}.
+                - After all images, the system/user prompt is added as text.
+                - The medical report is provided as the assistant's response.
         """
         
         report = self.reports[idx]
@@ -184,10 +183,11 @@ class ImageAndStudyDataset(Dataset):
 if __name__ == '__main__':
     print('Checking dataset class')
 
-    files_path = r'/home/ia368/projetos/fine_tuning/MIMIC-DATA-PROCESS/train'
-    train_data = ImageAndStudyDataset(files_path, filter_text=True)
+    # insert below the path for train data
+    files_path = r''
+    train_data = ImageAndStudyDataset(files_path, filter_text=False)
     
-    output = train_data[random.randint(0, len(train_data)-1)]\
+    output = train_data[random.randint(0, len(train_data)-1)]
 
     text = output['label']
     images = output['image']
@@ -201,5 +201,5 @@ if __name__ == '__main__':
         plt.figure()
         plt.imshow(img)
         plt.axis('off')
-        plt.title(f"Image {i}")
+        plt.title(f"Image {i}") # doesn't work :/
         plt.show()
