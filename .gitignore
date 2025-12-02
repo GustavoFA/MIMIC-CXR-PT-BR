@@ -10,3 +10,6 @@
 # Allow:
 !*.py
 !*.ipynb
+!*.png
+!*.pdf
+!*.png
