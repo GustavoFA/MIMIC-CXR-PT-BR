@@ -1,16 +1,33 @@
-# MIMIC-CXR-PT-BR  
-A project focused on enhancing the MIMIC-CXR dataset through high-quality Portuguese translations and additional preprocessing tools.
+# MIMIC-CXR-PT-BR
 
-Updates coming soon.
+This project aims to enhance the MIMIC-CXR dataset by providing **high-quality Portuguese translations** of radiology reports and performing **fine-tuning of MedGemma models** for Portuguese clinical language understanding.
+
+## Overview
+
+The main goals of this project are:
+
+- Translate MIMIC-CXR radiology reports from English to Brazilian Portuguese.
+- Fine-tune MedGemma-4B using LoRA to generate Portuguese reports.
+- Evaluate the quality of generated reports using **semantic metrics** (BERTScore) with BERTimbau and XLM-RoBERTa.
 
 
-## Models Used
+## Dataset
 
-* google/medgemma-27b-text-it → Translation
+- **MIMIC-CXR**: 377,110 chest X-ray images with 227,835 radiology reports.
+- Only CheXpert labels were used (14 conditions).  
+- **Subset for fine-tuning**: 960 training, 473 validation, 965 test studies.  
+- Images resized to 896×896 pixels for MedGemma input.
 
-* google/medgemma-4b-it → Inference & fine-tuning
 
-* BERTimbau Base & XLM-RoBERTa Large → Semantic evaluation (BERTScore)
+## Models
+
+| Model                        | Purpose                                |
+|-------------------------------|----------------------------------------|
+| `google/medgemma-27b-text-it` | Translation from EN → PT-BR            |
+| `google/medgemma-4b-it`       | Inference & fine-tuning                 |
+| BERTimbau Base                | Semantic evaluation (PT-BR reports)   |
+| XLM-RoBERTa Large             | Semantic evaluation (EN vs PT-BR)     |
+
 
 ## Fine-Tuning Configuration (LoRA)
 
@@ -33,11 +50,11 @@ Updates coming soon.
 ### LoRA performance
 
 Evaluation Loss Curve
-![Evaluation Loss Curve](GraphResults\eval_loss.png)
+![Evaluation Loss Curve](GraphResults/eval_loss.png)
 Evaluation Entropy Curve
-![Evaluation Entropy Curve](GraphResults\eval_entropy.png)
+![Evaluation Entropy Curve](GraphResults/eval_entropy.png)
 Evaluation Mean Tokens Accurate Curve
-![Evaluation Mean Tokens Accurate Curve](GraphResults\mean_tokens_acc.png)
+![Evaluation Mean Tokens Accurate Curve](GraphResults/mean_tokens_acc.png)
 
 ## Evaluation
 
@@ -95,3 +112,8 @@ Two semantic evaluation setups were used:
 * Few-Shot > Zero-Shot
 * LoRA > Few-Shot (on average)
 * LoRA shows largest min–max difference, indicating instability
+
+## Authors
+
+- [**Gustavo Freitas Alves**](gprofi98@gmail.com)
+- [**Priscila Marques de Oliveira**](pmarquesdeoliveira@gmail.com)
